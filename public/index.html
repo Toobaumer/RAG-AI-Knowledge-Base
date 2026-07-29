@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise Knowledge Base - RAG Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            base: {
+              950: '#0b0e1a',
+              900: '#12162a',
+              800: '#1a2036',
+              700: '#242c4a',
+            },
+            accent: {
+              400: '#8b7cf6',
+              500: '#7c6bf0',
+              600: '#6a58e8',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="bg-base-950 text-slate-100 min-h-screen">
+  <div class="max-w-7xl mx-auto px-6 py-10">
+
+    <header class="text-center mb-8">
+      <h1 class="text-3xl font-bold tracking-tight">Enterprise Knowledge Base</h1>
+      <p class="text-slate-400 mt-3 max-w-2xl mx-auto leading-relaxed">
+        Upload PDFs to build a searchable knowledge base, then ask questions and get answers
+        grounded only in what you uploaded, powered by Gemini 2.5 Flash and ChromaDB.
+      </p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+      <!-- LEFT: Knowledge Upload -->
+      <section class="lg:col-span-2 bg-base-900 border border-base-700 rounded-2xl p-6 flex flex-col gap-5 h-fit">
+        <h2 class="text-lg font-semibold">Knowledge Upload</h2>
+
+        <form id="upload-form" class="flex flex-col gap-4">
+          <label for="file-input" id="file-drop"
+            class="flex items-center justify-center text-center px-6 py-10 rounded-xl border-2 border-dashed border-base-700 text-slate-400 cursor-pointer transition hover:border-accent-500 hover:text-slate-100 hover:bg-accent-500/5">
+            <input type="file" id="file-input" name="file" accept="application/pdf" hidden />
+            <span id="file-drop-label">Click to choose a PDF, or drag one here</span>
+          </label>
+
+          <button type="submit" id="upload-btn" disabled
+            class="py-3 rounded-xl font-semibold bg-accent-500 hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition">
+            Upload to Knowledge Base
+          </button>
+        </form>
+
+        <!-- Progress indicator -->
+        <div id="upload-progress" class="hidden">
+          <div class="w-full h-2 bg-base-800 rounded-full overflow-hidden mb-3">
+            <div id="upload-progress-bar" class="h-full bg-accent-500 transition-all duration-300" style="width: 0%"></div>
+          </div>
+          <ol id="upload-steps" class="flex flex-col gap-1.5 text-sm"></ol>
+        </div>
+
+        <div id="upload-message" class="hidden rounded-xl px-4 py-3 text-sm font-medium"></div>
+
+        <!-- Indexed documents list -->
+        <div id="indexed-docs" class="hidden flex flex-col gap-2">
+          <h3 class="text-xs uppercase tracking-wide text-slate-500 mt-2">Indexed in this session</h3>
+          <ul id="indexed-docs-list" class="flex flex-col gap-2 text-sm"></ul>
+        </div>
+      </section>
+
+      <!-- RIGHT: AI Chat -->
+      <section class="lg:col-span-3 bg-base-900 border border-base-700 rounded-2xl p-6 flex flex-col h-[640px]">
+        <h2 class="text-lg font-semibold mb-4">Ask the Knowledge Base</h2>
+
+        <div id="chat-log" class="flex-1 overflow-y-auto flex flex-col gap-4 pr-1 mb-4">
+          <div class="text-sm text-slate-500 text-center mt-10">
+            Upload a document on the left, then ask a question about it here.
+          </div>
+        </div>
+
+        <form id="chat-form" class="flex items-end gap-3">
+          <textarea id="chat-input" rows="1" placeholder="Ask a question about your uploaded documents..."
+            class="flex-1 resize-none bg-base-800 border border-base-700 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-accent-500"></textarea>
+          <button type="submit" id="chat-send-btn"
+            class="px-5 py-3 rounded-xl font-semibold bg-accent-500 hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition">
+            Send
+          </button>
+        </form>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
