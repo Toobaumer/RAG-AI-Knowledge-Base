@@ -39,7 +39,7 @@ export class ChatService {
 
     // Step 1: Embed the question using the same embedding model used to
     // index the documents, so both live in the same vector space.
-    const questionEmbedding = await this.embeddingService.embedText(question);
+    const questionEmbedding = await this.embeddingService.embedText(question, 'RETRIEVAL_QUERY');
 
     // Step 2: Search ChromaDB for the most similar chunks.
     const matches = await this.vectorStore.query(questionEmbedding, topK);

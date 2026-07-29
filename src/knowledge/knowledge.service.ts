@@ -49,7 +49,7 @@ export class KnowledgeService {
     // metadata that lets the chat endpoint show where an answer came from.
     const entries: VectorEntry[] = [];
     for (const chunk of chunks) {
-      const embedding = await this.embeddingService.embedText(chunk.content);
+      const embedding = await this.embeddingService.embedText(chunk.content, 'RETRIEVAL_DOCUMENT');
 
       entries.push({
         id: `${file.originalname}::${chunk.id}`,
