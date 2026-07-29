@@ -4,6 +4,8 @@ An enterprise-style Retrieval-Augmented Generation (RAG) chatbot. Upload PDF doc
 
 **Stack:** NestJS, TypeScript, Gemini 2.5 Flash, Gemini Embeddings, ChromaDB, Tailwind CSS, vanilla JavaScript
 
+![Upload Interface](docs/screenshots/home.png)
+
 ---
 
 ## What it does
@@ -30,7 +32,7 @@ An enterprise-style Retrieval-Augmented Generation (RAG) chatbot. Upload PDF doc
 ## Project structure
 
 ```
-ai-rag-knowledge-base/
+rag-ai-knowledge-base/
 ├── public/                              Frontend (served as static files)
 │   ├── index.html                        Split-pane dashboard (upload left, chat right)
 │   ├── styles.css
@@ -73,24 +75,6 @@ ai-rag-knowledge-base/
 └── nest-cli.json
 ```
 
-### What each file does
-
-- `main.ts`: creates the application, enables CORS, applies a global validation pipe (this is what enforces "reject empty prompts" at the request boundary), and starts the server.
-- `app.module.ts`: the root module. Loads environment variables, serves the dashboard, and imports the shared infrastructure modules (Gemini, vector store) plus the two feature modules (Knowledge, Chat).
-- `config/configuration.ts`: converts raw environment variable strings into a typed config object, covering chunk size, overlap, retrieval top-K, embedding dimensions, and every other tunable value.
-- `common/pdf/pdf-parser.util.ts`: extracts raw text and page count from the uploaded file, and returns a clean error if the file cannot be parsed.
-- `common/text/text-cleaner.util.ts`: normalizes line breaks and tabs, strips control characters, collapses duplicate whitespace.
-- `common/markdown/markdown-converter.util.ts`: converts cleaned text into Markdown, using heuristics for headings and bullet lists.
-- `common/chunking/chunking.service.ts`: the recursive, overlapping, heading-aware, sentence-safe chunking strategy described above.
-- `gemini/gemini-embedding.service.ts`: the only file that knows how to call Gemini's embedding model. Everything else calls `embedText(text)` and gets back a plain number array.
-- `gemini/gemini-generation.service.ts`: the only file that knows how to call Gemini's chat model. Owns the anti-hallucination system prompt.
-- `vector-store/vector-store.port.ts`: the interface (`VectorStorePort`) that the rest of the app depends on, instead of depending on ChromaDB directly. This is the seam a future Pinecone or hybrid-search adapter would plug into.
-- `vector-store/chroma-vector-store.service.ts`: the ChromaDB implementation of that interface. The only file in the app that imports the `chromadb` package.
-- `prompt/prompt-builder.service.ts`: turns a list of retrieved chunks into the single context string sent to Gemini, and extracts the list of source file names for the response.
-- `knowledge/knowledge.service.ts`: orchestrates the upload pipeline (parse, clean, convert, chunk, embed, store). Contains no PDF-, chunking-, or Gemini-specific logic itself.
-- `chat/chat.service.ts`: orchestrates the RAG flow (embed question, search, build context, generate answer). This is the RAG orchestrator the rest of the system is built around.
-- `chat/dto/chat-request.dto.ts`: the `class-validator` rules that reject empty or excessively long questions before the request reaches any service.
-
 ---
 
 ## Setup
@@ -132,8 +116,6 @@ CHUNK_SIZE=800
 CHUNK_OVERLAP=150
 RETRIEVAL_TOP_K=5
 ```
-
-A free Gemini API key can be created at https://aistudio.google.com/apikey
 
 ### 4. Run the NestJS app
 
@@ -197,9 +179,27 @@ Both feature modules (Knowledge, Chat) depend on the same shared Gemini and vect
 
 ---
 
-## Known simplifications (worth naming directly)
+### What each file does
 
-Being upfront about these is more credible than pretending the project has none:
+- `main.ts`: creates the application, enables CORS, applies a global validation pipe (this is what enforces "reject empty prompts" at the request boundary), and starts the server.
+- `app.module.ts`: the root module. Loads environment variables, serves the dashboard, and imports the shared infrastructure modules (Gemini, vector store) plus the two feature modules (Knowledge, Chat).
+- `config/configuration.ts`: converts raw environment variable strings into a typed config object, covering chunk size, overlap, retrieval top-K, embedding dimensions, and every other tunable value.
+- `common/pdf/pdf-parser.util.ts`: extracts raw text and page count from the uploaded file, and returns a clean error if the file cannot be parsed.
+- `common/text/text-cleaner.util.ts`: normalizes line breaks and tabs, strips control characters, collapses duplicate whitespace.
+- `common/markdown/markdown-converter.util.ts`: converts cleaned text into Markdown, using heuristics for headings and bullet lists.
+- `common/chunking/chunking.service.ts`: the recursive, overlapping, heading-aware, sentence-safe chunking strategy described above.
+- `gemini/gemini-embedding.service.ts`: the only file that knows how to call Gemini's embedding model. Everything else calls `embedText(text)` and gets back a plain number array.
+- `gemini/gemini-generation.service.ts`: the only file that knows how to call Gemini's chat model. Owns the anti-hallucination system prompt.
+- `vector-store/vector-store.port.ts`: the interface (`VectorStorePort`) that the rest of the app depends on, instead of depending on ChromaDB directly. This is the seam a future Pinecone or hybrid-search adapter would plug into.
+- `vector-store/chroma-vector-store.service.ts`: the ChromaDB implementation of that interface. The only file in the app that imports the `chromadb` package.
+- `prompt/prompt-builder.service.ts`: turns a list of retrieved chunks into the single context string sent to Gemini, and extracts the list of source file names for the response.
+- `knowledge/knowledge.service.ts`: orchestrates the upload pipeline (parse, clean, convert, chunk, embed, store). Contains no PDF-, chunking-, or Gemini-specific logic itself.
+- `chat/chat.service.ts`: orchestrates the RAG flow (embed question, search, build context, generate answer). This is the RAG orchestrator the rest of the system is built around.
+- `chat/dto/chat-request.dto.ts`: the `class-validator` rules that reject empty or excessively long questions before the request reaches any service.
+
+---
+
+## Known simplifications 
 
 - **Embeddings are generated one chunk at a time**, in a loop, rather than batched into a single API call. A production version would batch requests to reduce latency and API call count.
 - **Overlap is measured in characters of trailing sentences**, not tokens, and a single sentence longer than the chunk size is kept whole rather than being cut mid-sentence. A reasonable trade-off, not a token-perfect implementation.
@@ -222,4 +222,6 @@ This was verified with real requests: PDF parsing, cleaning, Markdown conversion
 ## Debugging notes
 
 **Issue: retrieval failed on obviously relevant content, even with exact keyword matches.**
-Root cause was two related gaps in the embedding calls: no `taskType` was specified (Gemini's embedding model produces meaningfully better retrieval when told whether text is being indexed as a document or asked as a query), and `gemini-embedding-001` does not auto-normalize vectors at reduced output dimensionality (768 here), which distorted similarity scoring in ChromaDB. Fixed by setting `taskType: RETRIEVAL_DOCUMENT` for indexed chunks, `taskType: RETRIEVAL_QUERY` for questions, and manually L2-normalizing every embedding before storage or search.
+-Root cause was two related gaps in the embedding calls: no `taskType` was specified (Gemini's embedding model produces meaningfully better retrieval when told whether text is being indexed as a document or asked as a query), and `gemini-embedding-001` does not auto-normalize vectors at reduced output dimensionality (768 here), which distorted similarity scoring in ChromaDB. Fixed by setting `taskType: RETRIEVAL_DOCUMENT` for indexed chunks, `taskType: RETRIEVAL_QUERY` for questions, and manually L2-normalizing every embedding before storage or search.
+
+-A follow-up attempt to also embed each chunk's section heading alongside its content was tested and reverted: for this document's very short chunks, prefixing a heading measurably diluted the embedding's focus rather than sharpening it, and reduced retrieval quality on previously-working queries. Left as a reminder that heading-context works better for larger chunks than the small ones this document produced.
