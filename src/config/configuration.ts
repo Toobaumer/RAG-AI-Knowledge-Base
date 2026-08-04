@@ -30,6 +30,7 @@ export interface AppConfig {
   };
   retrieval: {
     topK: number;
+    candidatePoolSize: number;
   };
 }
 
@@ -57,5 +58,6 @@ export default (): AppConfig => ({
   },
   retrieval: {
     topK: parseInt(process.env.RETRIEVAL_TOP_K ?? '5', 10),
+    candidatePoolSize: parseInt(process.env.RETRIEVAL_CANDIDATE_POOL_SIZE ?? '10', 10),
   },
 });

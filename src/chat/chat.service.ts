@@ -1,58 +1,80 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { GeminiEmbeddingService } from '../gemini/gemini-embedding.service';
-import { GeminiGenerationService } from '../gemini/gemini-generation.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { GeminiGenerationService, NOT_FOUND_MESSAGE } from '../gemini/gemini-generation.service';
 import { PromptBuilderService } from '../prompt/prompt-builder.service';
-import { VECTOR_STORE, VectorStorePort } from '../vector-store/vector-store.port';
-import { ChatResponseDto } from './dto/chat-response.dto';
+import { RetrievalPipelineService } from '../retrieval/retrieval-pipeline.service';
+import { RankedChunk } from '../retrieval/rerank.port';
+import { sanitizeUserInput } from '../common/security/input-sanitizer.util';
+import { ChatResponseDto, ConfidenceLevel } from './dto/chat-response.dto';
 
 /**
- * The retrieval-augmented generation orchestrator. This is the "RAG
- * Service" the project brief asks for - the workflow is:
+ * The retrieval-augmented generation orchestrator. The workflow is:
  *
- *   question -> embed -> search ChromaDB -> assemble context
- *   -> Gemini generation -> { answer, sources }
+ *   question -> sanitize -> hybrid retrieval (vector + BM25 + rerank)
+ *   -> assemble context -> Gemini generation -> { answer, sources, confidence }
  *
- * Note this class has no idea chunks were created by recursive chunking,
- * or that embeddings come from Gemini specifically - it only depends on
- * VectorStorePort and the two Gemini services' public methods. That
- * separation is what future lessons (Redis conversation memory, Ragas
- * evaluation, reranking, hybrid search) can build on without needing to
- * touch this file's core flow.
+ * This class has no idea whether a chunk was found via semantic vector
+ * search, BM25 keyword search, or both, and no idea how reranking scored
+ * it - all of that is RetrievalPipelineService's responsibility. That
+ * separation is exactly what made it possible to add hybrid search and
+ * reranking without changing this file's public method signature or the
+ * /chat API contract at all.
  */
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly embeddingService: GeminiEmbeddingService,
+    private readonly retrievalPipeline: RetrievalPipelineService,
     private readonly generationService: GeminiGenerationService,
     private readonly promptBuilder: PromptBuilderService,
-    @Inject(VECTOR_STORE) private readonly vectorStore: VectorStorePort,
   ) {}
 
-  async answerQuestion(question: string): Promise<ChatResponseDto> {
-    const topK = this.configService.get<number>('retrieval.topK') ?? 5;
+  async answerQuestion(rawQuestion: string): Promise<ChatResponseDto> {
+    const question = sanitizeUserInput(rawQuestion);
 
-    this.logger.log(`Answering question: "${question}"`);
+    // Steps 1-5 (embed, vector search, BM25 search, merge, rerank) all
+    // happen inside the pipeline, with their own stage-by-stage logging.
+    const rankedChunks = await this.retrievalPipeline.retrieve(question);
 
-    // Step 1: Embed the question using the same embedding model used to
-    // index the documents, so both live in the same vector space.
-    const questionEmbedding = await this.embeddingService.embedText(question, 'RETRIEVAL_QUERY');
+    const context = this.promptBuilder.buildContext(rankedChunks);
 
-    // Step 2: Search ChromaDB for the most similar chunks.
-    const matches = await this.vectorStore.query(questionEmbedding, topK);
-
-    // Step 3: Assemble the retrieved chunks into one context string.
-    const context = this.promptBuilder.buildContext(matches);
-
-    // Step 4: Generate the final answer, grounded only in that context.
+    this.logger.log('Sending context to Gemini...');
     const answer = await this.generationService.generateAnswer(question, context);
+    this.logger.log('Generating final response...');
 
-    return {
+    const response: ChatResponseDto = {
       answer,
-      sources: this.promptBuilder.extractSourceFileNames(matches),
+      sources: this.promptBuilder.extractSourceFileNames(rankedChunks),
+      confidence: this.computeConfidence(rankedChunks, answer),
     };
+
+    this.logger.log('Completed.');
+    return response;
+  }
+
+  /**
+   * Buckets the top reranked chunk's finalScore into a simple, frontend
+   * -friendly label. The 0.65 / 0.4 thresholds are tuned by judgment, not
+   * measured against labeled data - exactly the kind of number a future
+   * Ragas evaluation pass would let you set with real evidence instead.
+   *
+   * Confidence is forced to "low" whenever the model actually replied
+   * with the "not found" fallback, regardless of how good retrieval
+   * looked beforehand. Found as a real bug during testing: a chunk can
+   * score well in retrieval but still lead Gemini to conclude it doesn't
+   * answer the question, and the confidence label must reflect the
+   * answer that was actually given, not just how retrieval scored it.
+   */
+  private computeConfidence(rankedChunks: RankedChunk[], answer: string): ConfidenceLevel {
+    if (answer.trim() === NOT_FOUND_MESSAGE) {
+      return 'low';
+    }
+
+    if (rankedChunks.length === 0) return 'low';
+
+    const topScore = rankedChunks[0].finalScore;
+    if (topScore >= 0.65) return 'high';
+    if (topScore >= 0.4) return 'medium';
+    return 'low';
   }
 }

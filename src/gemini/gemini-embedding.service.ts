@@ -1,13 +1,22 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI } from '@google/genai';
+import { createHash } from 'crypto';
+import { describeGeminiError } from '../common/gemini/gemini-error.util';
 
 export type EmbeddingTaskType = 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
 
 /**
  * Wraps Gemini's embedding model (gemini-embedding-001).
  *
- * Two important correctness details this class handles:
+ * Every other service talks to embeddings only through this class's
+ * `embedText` method - nothing else in the app knows this is Gemini
+ * specifically. That is deliberate: swapping to a different embedding
+ * provider later (OpenAI, a local model, etc.) only means changing this
+ * one file.
+ *
+ * Two correctness details this class handles, found while debugging poor
+ * retrieval quality on a real document:
  *
  *  1. Task type: Gemini's embedding model produces meaningfully better
  *     retrieval results when told whether a piece of text is a document
@@ -18,6 +27,15 @@ export type EmbeddingTaskType = 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
  *     vector at its full 3072-dimension size. Any other output
  *     dimensionality (768 here) comes back unnormalized, which distorts
  *     cosine/distance similarity search unless normalized manually.
+ *
+ * Performance: an in-memory cache avoids re-embedding the exact same text
+ * twice in one running process (for example, a user re-asking the same
+ * question, or re-uploading a document that shares chunks with one
+ * already indexed). This is intentionally simple - a plain Map, no
+ * eviction policy, cleared on restart - which is appropriate for a
+ * portfolio-scale app. A production system with high query volume would
+ * want an LRU cache with a size limit, or a shared cache (Redis) across
+ * multiple app instances.
  */
 @Injectable()
 export class GeminiEmbeddingService {
@@ -25,6 +43,9 @@ export class GeminiEmbeddingService {
   private readonly client: GoogleGenAI;
   private readonly model: string;
   private readonly dimensions: number;
+
+  /** text+taskType hash -> embedding vector, for this process's lifetime. */
+  private readonly cache = new Map<string, number[]>();
 
   constructor(private readonly configService: ConfigService) {
     const apiKey = this.configService.get<string>('gemini.apiKey');
@@ -41,6 +62,12 @@ export class GeminiEmbeddingService {
   }
 
   async embedText(text: string, taskType: EmbeddingTaskType): Promise<number[]> {
+    const cacheKey = this.buildCacheKey(text, taskType);
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const response = await this.client.models.embedContent({
         model: this.model,
@@ -57,12 +84,12 @@ export class GeminiEmbeddingService {
         throw new Error('Gemini returned an empty embedding.');
       }
 
-      return this.normalize(embedding);
+      const normalized = this.normalize(embedding);
+      this.cache.set(cacheKey, normalized);
+      return normalized;
     } catch (error) {
       this.logger.error(`Embedding request failed: ${error.message}`, error.stack);
-      throw new InternalServerErrorException(
-        'Failed to generate an embedding. Please verify your GEMINI_API_KEY and try again.',
-      );
+      throw new InternalServerErrorException(describeGeminiError(error));
     }
   }
 
@@ -75,5 +102,11 @@ export class GeminiEmbeddingService {
     const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
     if (magnitude === 0) return vector;
     return vector.map((value) => value / magnitude);
+  }
+
+  /** Short, fixed-length cache key so very long texts don't bloat Map key storage. */
+  private buildCacheKey(text: string, taskType: EmbeddingTaskType): string {
+    const hash = createHash('sha256').update(text).digest('hex');
+    return `${taskType}:${hash}`;
   }
 }

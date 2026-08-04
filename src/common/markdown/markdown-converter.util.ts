@@ -45,14 +45,21 @@ export function convertTextToMarkdown(cleanedText: string): string {
     .trim();
 }
 
-/**
- * Heuristic: a line is treated as a heading if it's short, doesn't end in
- * sentence punctuation, and isn't just a bullet/number fragment.
- */
 function looksLikeHeading(line: string): boolean {
+  // A "Label: value" line  is a fact, not a heading, even though it's
+  // short and doesn't end in sentence punctuation. Found as a real bug:
+  // when a source PDF's bullet points lose their bullet glyph during
+  // text extraction, lines like this were being misclassified as
+  // headings, fragmenting a real section (e.g. "Program Overview") into
+  // several disconnected one-line pseudo-sections instead of one
+  // coherent, searchable chunk.
+  const isLabelValueLine = /^[A-Za-z][A-Za-z\s]{0,30}:\s+\S/.test(line);
+  if (isLabelValueLine) return false;
+
   const wordCount = line.split(/\s+/).length;
   const endsLikeSentence = /[.,;:]$/.test(line);
   const isAllCapsOrTitle = line === line.toUpperCase() || /^[A-Z0-9][^a-z]*$/.test(line);
 
   return wordCount <= 8 && !endsLikeSentence && (isAllCapsOrTitle || wordCount <= 5);
 }
+

@@ -1,25 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChromaClient, Collection, EmbeddingFunction } from 'chromadb';
-import { VectorEntry, VectorMatch, VectorStorePort } from './vector-store.port';
-
-/**
- * This app always supplies its own Gemini-generated embeddings explicitly,
- * so ChromaDB's built-in default embedding function is never actually
- * needed. Without this, Chroma tries to load its default embedding
- * package (which depends on onnxruntime-node, a native module that can
- * fail to install on some machines). Providing this tiny stand-in avoids
- * that dependency entirely.
- */
-class NullEmbeddingFunction implements EmbeddingFunction {
-  public name = 'null-embedding-function';
-
-  async generate(_texts: string[]): Promise<number[][]> {
-    throw new Error(
-      'This app always provides its own embeddings explicitly; the default embedding function should never be invoked.',
-    );
-  }
-}
+import { ChromaClient, Collection } from 'chromadb';
+import { IndexedDocument, VectorEntry, VectorMatch, VectorStorePort } from './vector-store.port';
 
 /**
  * ChromaDB implementation of the VectorStorePort.
@@ -58,7 +40,6 @@ export class ChromaVectorStoreService implements VectorStorePort, OnModuleInit {
     try {
       this.collection = await this.client.getOrCreateCollection({
         name: this.collectionName,
-        embeddingFunction: new NullEmbeddingFunction(),
       });
       this.logger.log(`Connected to ChromaDB collection "${this.collectionName}"`);
     } catch (error) {
@@ -111,6 +92,29 @@ export class ChromaVectorStoreService implements VectorStorePort, OnModuleInit {
       this.logger.error(`ChromaDB query failed: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         'Failed to search the knowledge base. Please make sure ChromaDB is running.',
+      );
+    }
+  }
+
+  async getAllDocuments(): Promise<IndexedDocument[]> {
+    try {
+      const results = await this.collection.get({
+        include: ['documents', 'metadatas'] as any,
+      });
+
+      const ids = results.ids ?? [];
+      const documents = results.documents ?? [];
+      const metadatas = results.metadatas ?? [];
+
+      return ids.map((id, index) => ({
+        id,
+        content: documents[index] ?? '',
+        metadata: (metadatas[index] ?? {}) as Record<string, string | number>,
+      }));
+    } catch (error) {
+      this.logger.error(`ChromaDB getAllDocuments failed: ${error.message}`, error.stack);
+      throw new InternalServerErrorException(
+        'Failed to load the knowledge base. Please make sure ChromaDB is running.',
       );
     }
   }

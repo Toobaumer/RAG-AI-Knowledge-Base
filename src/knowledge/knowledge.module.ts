@@ -6,6 +6,7 @@ import { KnowledgeService } from './knowledge.service';
 import { ChunkingService } from '../common/chunking/chunking.service';
 import { GeminiModule } from '../gemini/gemini.module';
 import { VectorStoreModule } from '../vector-store/vector-store.module';
+import { RetrievalModule } from '../retrieval/retrieval.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { VectorStoreModule } from '../vector-store/vector-store.module';
     }),
     GeminiModule,
     VectorStoreModule,
+    RetrievalModule,
   ],
   controllers: [KnowledgeController],
   providers: [KnowledgeService, ChunkingService],

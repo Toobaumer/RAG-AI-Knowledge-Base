@@ -18,8 +18,9 @@ const UPLOAD_STAGES = [
 
 const CHAT_STAGES = [
   'Searching knowledge base...',
-  'Building context...',
-  'Thinking...',
+  'Running vector search...',
+  'Running keyword search...',
+  'Merging and re-ranking...',
   'Generating answer...',
 ];
 
@@ -199,7 +200,7 @@ chatForm.addEventListener('submit', async (e) => {
       return;
     }
 
-    addChatMessage('assistant', data.answer, data.sources || []);
+    addChatMessage('assistant', data.answer, data.sources || [], false, data.confidence);
   } catch (error) {
     removeTypingIndicator(typingId);
     addChatMessage('assistant', 'Could not reach the server. Please try again.', [], true);
@@ -213,7 +214,7 @@ function clearEmptyState() {
   if (emptyState) emptyState.remove();
 }
 
-function addChatMessage(role, text, sources = [], isError = false) {
+function addChatMessage(role, text, sources = [], isError = false, confidence = null) {
   const wrapper = document.createElement('div');
   wrapper.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
 
@@ -229,14 +230,30 @@ function addChatMessage(role, text, sources = [], isError = false) {
         .join('')}</div>`
     : '';
 
+  const confidenceHtml = confidence ? confidenceBadgeHtml(confidence) : '';
+
   wrapper.innerHTML = `
     <div class="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${bubbleColor}">
+      ${confidenceHtml}
       <div>${escapeHtml(text).replace(/\n/g, '<br/>')}</div>
       ${sourcesHtml}
     </div>`;
 
   chatLog.appendChild(wrapper);
   chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function confidenceBadgeHtml(confidence) {
+  const styles = {
+    high: 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400',
+    medium: 'bg-amber-500/10 border-amber-500/40 text-amber-400',
+    low: 'bg-red-500/10 border-red-500/40 text-red-400',
+  };
+  const labels = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence' };
+  const style = styles[confidence] || styles.low;
+  const label = labels[confidence] || 'Low confidence';
+
+  return `<div class="inline-block text-xs font-medium border rounded-full px-2.5 py-0.5 mb-2 ${style}">${label}</div>`;
 }
 
 function addTypingIndicator() {

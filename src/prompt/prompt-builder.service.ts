@@ -5,9 +5,15 @@ import { VectorMatch } from '../vector-store/vector-store.port';
  * Turns a list of retrieved chunks into the single context string that
  * gets handed to Gemini. Kept as its own service (rather than inlined in
  * ChatService) so the context format can evolve independently - for
- * example, a future lesson on hybrid search or reranking could change how
- * chunks are ordered or labeled here without touching the retrieval or
- * generation logic.
+ * example, hybrid search and reranking changed how chunks are found and
+ * scored, but never needed to touch this file.
+ *
+ * Each chunk is wrapped with an explicit "BEGIN/END EXCERPT" delimiter.
+ * This is a second, defense-in-depth layer against prompt injection
+ * alongside the system prompt's explicit instruction (see
+ * GeminiGenerationService): clearly bounding where document text starts
+ * and ends makes it harder for text inside a chunk to be mistaken for
+ * part of the surrounding instructions.
  */
 @Injectable()
 export class PromptBuilderService {
@@ -20,7 +26,7 @@ export class PromptBuilderService {
       .map((match, index) => {
         const fileName = match.metadata.fileName ?? 'unknown source';
         const heading = match.metadata.heading ?? 'unknown section';
-        return `[Source ${index + 1}: ${fileName}, section "${heading}"]\n${match.content}`;
+        return `[Source ${index + 1}: ${fileName}, section "${heading}"]\n--- BEGIN EXCERPT ---\n${match.content}\n--- END EXCERPT ---`;
       })
       .join('\n\n');
   }

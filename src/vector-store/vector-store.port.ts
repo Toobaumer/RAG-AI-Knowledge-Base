@@ -30,10 +30,29 @@ export interface VectorMatch {
  */
 export const VECTOR_STORE = 'VECTOR_STORE';
 
+/**
+ * A lightweight view of a stored chunk, used to rebuild in-memory indexes
+ * (like BM25Service's keyword index) from what is already in the vector
+ * database, without needing to know embeddings.
+ */
+export interface IndexedDocument {
+  id: string;
+  content: string;
+  metadata: Record<string, string | number>;
+}
+
 export interface VectorStorePort {
   /** Adds (or updates, if the id already exists) a batch of chunks. */
   upsert(entries: VectorEntry[]): Promise<void>;
 
   /** Returns the topK entries most similar to the given embedding. */
   query(embedding: number[], topK: number): Promise<VectorMatch[]>;
+
+  /**
+   * Returns every stored chunk's text and metadata (no embeddings).
+   * Used at startup to rebuild BM25Service's in-memory keyword index from
+   * whatever is already persisted in ChromaDB, so a restarted app doesn't
+   * lose keyword-search coverage over previously uploaded documents.
+   */
+  getAllDocuments(): Promise<IndexedDocument[]>;
 }
